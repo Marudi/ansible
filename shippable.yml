@@ -1,0 +1,89 @@
+resources:
+# Automation scripts repo
+  - name: aws_ec2_repo
+    type: gitRepo
+    integration: "drship_github"
+    versionTemplate:
+      sourceName: "devops-recipes/prov_aws_ec2_ansible"
+      branch: master
+
+# AWS credentials
+  - name: aws_ec2_creds
+    type: integration
+    integration: "dr_aws"
+
+# AWS PEM Key
+  - name: aws_ec2_pem
+    type: integration
+    integration: "drship_aws_pem"
+
+# Output of EC2 provisioning
+  - name: aws_ec2_info
+    type: params
+    versionTemplate:
+      params:
+        SEED: "initial_version"
+
+jobs:
+# Provision AWS EC2 with Ansible
+  - name: prov_aws_ec2_ans
+    type: runSh
+    steps:
+      - IN: aws_ec2_repo
+        switch: off
+      - IN: aws_ec2_creds
+        switch: off
+      - IN: aws_ec2_pem
+        switch: off
+      - IN: aws_vpc_info
+        switch: off
+      - TASK:
+          name: prov_ec2
+          runtime:
+            options:
+              env:
+                - STATE_RES_NAME: "aws_ec2_info"
+                - ec2_region: "us-east-1"
+                - ec2_tag_Type: "t2.micro"
+                - ec2_image: "ami-43a15f3e"
+                - ec2_keypair: "dr_us_east_1"
+                - ec2_tag_Role: "demo_machines"
+                - ec2_volume_size: 30
+                - ec2_count: 1
+          script:
+            - pushd $(shipctl get_resource_state "aws_ec2_repo")/ansible
+            - export AWS_ACCESS_KEY_ID=$(shipctl get_integration_resource_field aws_ec2_creds "accessKey")
+            - export AWS_SECRET_ACCESS_KEY=$(shipctl get_integration_resource_field aws_ec2_creds "secretKey")
+            - shipctl replace variables.yml
+            - ansible-playbook -v ec2_prov_playbook.yml
+      - OUT: aws_ec2_info
+        overwrite: true
+    flags:
+      - aws_ec2
+      - aws
+      - ansible
+
+# Terminate AWS EC2 with Ansible
+  - name: term_aws_ec2_ans
+    type: runSh
+    steps:
+      - IN: aws_ec2_repo
+      - IN: aws_ec2_creds
+        switch: off
+      - IN: aws_ec2_pem
+        switch: off
+      - IN: aws_ec2_info
+        switch: off
+      - TASK:
+          name: term_ec2
+          script:
+            - pushd $(shipctl get_resource_state "aws_ec2_repo")/ansible
+            - export ec2_region="us-east-1"
+            - export AWS_ACCESS_KEY_ID=$(shipctl get_integration_resource_field aws_ec2_creds "accessKey")
+            - export AWS_SECRET_ACCESS_KEY=$(shipctl get_integration_resource_field aws_ec2_creds "secretKey")
+            - shipctl replace variables.yml
+            - ansible-playbook -v ec2_term_playbook.yml
+    flags:
+      - aws_ec2
+      - aws
+      - ansible
